@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Light Meter Camera Test</title>
+<style>
+body{font:20px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:24px 16px;background:#111;color:#fff}
+button{font:inherit;font-weight:600;width:100%;padding:24px;margin:12px 0;border:0;border-radius:12px;background:#ffcc00;color:#000}
+pre{white-space:pre-wrap;font-size:16px}
+video{width:1px;height:1px;opacity:0}
+</style>
+</head>
+<body>
+<h1>Camera Test</h1>
+<button id="run">Run camera test</button>
+<p id="result" role="status" aria-live="polite"></p>
+<button id="copy" hidden>Copy results</button>
+<pre id="detail"></pre>
+<video id="v" playsinline muted></video>
+<script>
+const $ = id => document.getElementById(id);
+function say(t){ try{ speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(t)); }catch(e){} }
+$('run').onclick = async () => {
+  say('Testing. Allow camera if asked.');
+  const out = { userAgent: navigator.userAgent };
+  let verdict;
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    $('v').srcObject = s; await $('v').play().catch(()=>{});
+    const t = s.getVideoTracks()[0];
+    out.capabilities = t.getCapabilities ? t.getCapabilities() : 'getCapabilities not supported';
+    out.settingsBefore = t.getSettings();
+    const caps = typeof out.capabilities === 'object' ? out.capabilities : {};
+    const modes = caps.exposureMode || [];
+    const canLock = modes.includes('manual') || modes.includes('none');
+    const canRead = 'exposureTime' in out.settingsBefore || 'iso' in out.settingsBefore;
+    if (canLock) {
+      try { await t.applyConstraints({ advanced: [{ exposureMode: modes.includes('manual') ? 'manual' : 'none' }] }); out.lock = 'ok'; }
+      catch (e) { out.lock = 'failed: ' + e.message; }
+      out.settingsAfter = t.getSettings();
+    }
+    s.getTracks().forEach(x => x.stop());
+    if (canLock && out.lock === 'ok' && canRead) verdict = 'Good news. Safari can lock and read the camera exposure. A web light meter should work well.';
+    else if (canLock && out.lock === 'ok') verdict = 'Partly good. Safari can lock the exposure but cannot read its settings. A web meter would need calibration against another meter.';
+    else verdict = 'Safari cannot lock the camera exposure. A web light meter would be rough. A native app is the better choice.';
+  } catch (e) {
+    verdict = 'The camera could not start. ' + e.name + '. Check that this page is on an https address and that camera access was allowed.';
+    out.error = e.name + ': ' + e.message;
+  }
+  $('result').textContent = verdict;
+  $('detail').textContent = JSON.stringify(out, null, 1);
+  $('copy').hidden = false;
+  say(verdict);
+};
+$('copy').onclick = async () => {
+  const txt = $('result').textContent + '\n' + $('detail').textContent;
+  try { await navigator.clipboard.writeText(txt); say('Results copied.'); }
+  catch (e) { say('Copy failed.'); }
+};
+</script>
+</body>
+</html>
